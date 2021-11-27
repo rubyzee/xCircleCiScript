@@ -1,17 +1,37 @@
 #!/usr/bin/env bash
-echo "Downloading few Dependecies . . ."
-git clone --depth=1 $kernel_source $device_codename
-git clone --depth=1 https://github.com/xyz-prjkt/xRageTC-clang clang
+#
+# Copyright (C) 2021 a xyzprjkt property
+#
 
-# Main
-KERNEL_NAME=$kernel_name # IMPORTANT ! Declare your kernel name
-KERNEL_ROOTDIR=$(pwd)/$device_codename # IMPORTANT ! Fill with your kernel source root directory.
-DEVICE_CODENAME=$device_codename # IMPORTANT ! Declare your device codename
-DEVICE_DEFCONFIG=$kernel_defconfig # IMPORTANT ! Declare your kernel source defconfig file here.
+# Needed Secret Variable
+# KERNEL_NAME | Your kernel name
+# KERNEL_SOURCE | Your kernel link source
+# KERNEL_BRANCH  | Your needed kernel branch if needed with -b. eg -b eleven_eas
+# DEVICE_CODENAME | Your device codename
+# DEVICE_DEFCONFIG | Your device defconfig eg. lavender_defconfig
+# CLANG_REPO | Your clang repository
+# ANYKERNEL | Your Anykernel link repository
+# TG_TOKEN | Your telegram bot token
+# TG_CHAT_ID | Your telegram private ci chat id
+# BUILD_USER | Your username
+# BUILD_HOST | Your hostname
+
+echo "Downloading few Dependecies . . ."
+# Kernel Sources
+apt-get update
+apt-get install libc6
+git clone --depth=1 $KERNEL_SOURCE $KERNEL_BRANCH $DEVICE_CODENAME
+git clone --depth=1 $CLANG_REPO clang # clang set as Clang Default
+
+# Main Declaration
+KERNEL_ROOTDIR=$(pwd)/$DEVICE_CODENAME # IMPORTANT ! Fill with your kernel source root directory.
+DEVICE_DEFCONFIG=$DEVICE_DEFCONFIG # IMPORTANT ! Declare your kernel source defconfig file here.
 CLANG_ROOTDIR=$(pwd)/clang # IMPORTANT! Put your clang directory here.
-export KBUILD_BUILD_USER=xyzuan # Change with your own name or else.
-export KBUILD_BUILD_HOST=xyzscape-ci # Change with your own hostname.
-IMAGE=$(pwd)/lavender/out/arch/arm64/boot/Image.gz-dtb
+export KBUILD_BUILD_USER=$BUILD_USER # Change with your own name or else.
+export KBUILD_BUILD_HOST=$BUILD_HOST # Change with your own hostname.
+CLANG_VER="$("$CLANG_ROOTDIR"/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
+export KBUILD_COMPILER_STRING="$CLANG_VER"
+IMAGE=$(pwd)/$DEVICE_CODENAME/out/arch/arm64/boot/Image.gz-dtb
 DATE=$(date +"%F-%S")
 START=$(date +"%s")
 PATH="${PATH}:${CLANG_ROOTDIR}/bin"
@@ -20,58 +40,65 @@ PATH="${PATH}:${CLANG_ROOTDIR}/bin"
 # Warning !! Dont Change anything there without known reason.
 function check() {
 echo ================================================
-echo xKernelCompiler CircleCI Edition
+echo KernelCompiler
 echo version : rev1.5 - gaspoll
 echo ================================================
 echo BUILDER NAME = ${KBUILD_BUILD_USER}
 echo BUILDER HOSTNAME = ${KBUILD_BUILD_HOST}
 echo DEVICE_DEFCONFIG = ${DEVICE_DEFCONFIG}
-echo CLANG_VERSION = $(${CLANG_ROOTDIR}/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g')
+echo TOOLCHAIN_VERSION = ${KBUILD_COMPILER_STRING}
 echo CLANG_ROOTDIR = ${CLANG_ROOTDIR}
 echo KERNEL_ROOTDIR = ${KERNEL_ROOTDIR}
 echo ================================================
 }
 
-# Compiler
-function compile() {
+# Telegram
+export BOT_MSG_URL="https://api.telegram.org/bot$TG_TOKEN/sendMessage"
 
-   # Your Telegram Group
-   curl -s -X POST "https://api.telegram.org/bot$token/sendMessage" \
-        -d chat_id="$chat_id" \
-        -d "disable_web_page_preview=true" \
-        -d "parse_mode=html" \
-        -d text="<b>xKernelCompiler</b>%0ABUILDER NAME : <code>${KBUILD_BUILD_USER}</code>%0ABUILDER HOST : <code>${KBUILD_BUILD_HOST}</code>%0ADEVICE DEFCONFIG : <code>${DEVICE_DEFCONFIG}</code>%0ACLANG VERSION : <code>$(${CLANG_ROOTDIR}/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g')</code>%0ACLANG ROOTDIR : <code>${CLANG_ROOTDIR}</code>%0AKERNEL ROOTDIR : <code>${KERNEL_ROOTDIR}</code>"
+tg_post_msg() {
+  curl -s -X POST "$BOT_MSG_URL" -d chat_id="$TG_CHAT_ID" \
+  -d "disable_web_page_preview=true" \
+  -d "parse_mode=html" \
+  -d text="$1"
 
-  cd ${KERNEL_ROOTDIR}
-  make -j$(nproc) O=out ARCH=arm64 ${DEVICE_DEFCONFIG}
-  make -j$(nproc) ARCH=arm64 O=out \
-	CC=${CLANG_ROOTDIR}/bin/clang \
-	CROSS_COMPILE=${CLANG_ROOTDIR}/bin/aarch64-linux-gnu- \
-	CROSS_COMPILE_ARM32=${CLANG_ROOTDIR}/bin/arm-linux-gnueabi-
+}
+
+# Post Main Information
+tg_post_msg "<b>xKernelCompiler</b>%0ABuilder Name : <code>${KBUILD_BUILD_USER}</code>%0ABuilder Host : <code>${KBUILD_BUILD_HOST}</code>%0ADevice Defconfig: <code>${DEVICE_DEFCONFIG}</code>%0AClang Version : <code>${KBUILD_COMPILER_STRING}</code>%0AClang Rootdir : <code>${CLANG_ROOTDIR}</code>%0AKernel Rootdir : <code>${KERNEL_ROOTDIR}</code>"
+
+# Compile
+compile(){
+tg_post_msg "<b>xKernelCompiler:</b><code>Compilation has started</code>"
+cd ${KERNEL_ROOTDIR}
+make -j$(nproc) O=out ARCH=arm64 ${DEVICE_DEFCONFIG}
+make -j$(nproc) ARCH=arm64 O=out \
+    CC=${CLANG_ROOTDIR}/bin/clang \
+    CROSS_COMPILE=${CLANG_ROOTDIR}/bin/aarch64-linux-gnu- \
+    CROSS_COMPILE_ARM32=${CLANG_ROOTDIR}/bin/arm-linux-gnueabi-
 
    if ! [ -a "$IMAGE" ]; then
 	finerr
 	exit 1
    fi
-    git clone --depth=1 $anykernel AnyKernel
-	cp out/arch/arm64/boot/Image.gz-dtb AnyKernel
+
+  git clone --depth=1 $ANYKERNEL AnyKernel
+	cp $IMAGE AnyKernel
 }
 
-# Push
+# Push kernel to channel
 function push() {
     cd AnyKernel
     ZIP=$(echo *.zip)
-    curl -F document=@$ZIP "https://api.telegram.org/bot$token/sendDocument" \
-        -F chat_id="$chat_id" \
+    curl -F document=@$ZIP "https://api.telegram.org/bot$TG_TOKEN/sendDocument" \
+        -F chat_id="$TG_CHAT_ID" \
         -F "disable_web_page_preview=true" \
         -F "parse_mode=html" \
-        -F caption="Compile took $(($DIFF / 60)) minute(s) and $(($DIFF % 60)) second(s). | For <b>Xiaomi Redmi Note 7 (lavender)</b> | <b>$(${CLANG_ROOTDIR}/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g')</b>"
-
+        -F caption="Compile took $(($DIFF / 60)) minute(s) and $(($DIFF % 60)) second(s). | For <b>$DEVICE_CODENAME</b> | <b>${KBUILD_COMPILER_STRING}</b>"
 }
 # Fin Error
 function finerr() {
-    curl -s -X POST "https://api.telegram.org/bot$token/sendMessage" \
-        -d chat_id="$chat_id" \
+    curl -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+        -d chat_id="$TG_CHAT_ID" \
         -d "disable_web_page_preview=true" \
         -d "parse_mode=markdown" \
         -d text="Build throw an error(s)"
@@ -81,7 +108,7 @@ function finerr() {
 # Zipping
 function zipping() {
     cd AnyKernel || exit 1
-    zip -r9 ${KERNEL_NAME}-${DEVICE_CODENAME}-${DATE}.zip *
+    zip -r9 $KERNEL_NAME-$DEVICE_CODENAME-${DATE}.zip *
     cd ..
 }
 check
